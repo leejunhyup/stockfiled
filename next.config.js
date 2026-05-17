@@ -1,6 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  serverExternalPackages: ['yahoo-finance2'],
-}
+const nextConfig = {}
 
 module.exports = nextConfig

@@ -1,21 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
-import yahooFinance from 'yahoo-finance2'
 import { neon } from '@neondatabase/serverless'
 
 function isKrCode(q: string) {
   return /^\d{6}$/.test(q)
 }
 
-async function fetchQuote(q: string) {
-  const opts = { validateResult: false } as const
-  if (isKrCode(q)) {
-    try {
-      return await yahooFinance.quote(`${q}.KS`, {}, opts)
-    } catch {
-      return await yahooFinance.quote(`${q}.KQ`, {}, opts)
-    }
-  }
-  return yahooFinance.quote(q.toUpperCase(), {}, opts)
+interface YahooMeta {
+  longName?: string
+  shortName?: string
+  currency?: string
+  exchangeName?: string
+  fullExchangeName?: string
+  regularMarketPrice?: number
+  chartPreviousClose?: number
+  previousClose?: number
+  regularMarketVolume?: number
+}
+
+async function fetchYahooChart(symbol: string): Promise<YahooMeta> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'application/json',
+      Referer: 'https://finance.yahoo.com/',
+    },
+  })
+  if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`)
+  const data = await res.json()
+  if (data?.chart?.error) throw new Error(data.chart.error.description ?? 'error')
+  const meta: YahooMeta = data?.chart?.result?.[0]?.meta
+  if (!meta?.regularMarketPrice) throw new Error('no price')
+  return meta
 }
 
 const CREATE_TABLE = `
@@ -35,33 +51,37 @@ const CREATE_TABLE = `
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim() ?? ''
+  if (!q) return NextResponse.json({ error: '종목 코드를 입력하세요.' }, { status: 400 })
 
-  if (!q) {
-    return NextResponse.json({ error: '종목 코드를 입력하세요.' }, { status: 400 })
-  }
+  let ticker = isKrCode(q) ? `${q}.KS` : q.toUpperCase()
 
   try {
-    const quote = await fetchQuote(q)
-
-    if (!quote?.regularMarketPrice) {
-      return NextResponse.json({ error: `'${q}' 종목을 찾을 수 없습니다.` }, { status: 404 })
+    let meta: YahooMeta
+    try {
+      meta = await fetchYahooChart(ticker)
+    } catch {
+      if (isKrCode(q)) {
+        ticker = `${q}.KQ`
+        meta = await fetchYahooChart(ticker)
+      } else {
+        throw new Error()
+      }
     }
 
-    const price = quote.regularMarketPrice
-    const prevClose = quote.regularMarketPreviousClose ?? price
+    const price = meta.regularMarketPrice!
+    const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price
     const change = price - prevClose
     const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0
-    const ticker = isKrCode(q) ? `${q}.KS` : q.toUpperCase()
 
     const data = {
-      name: quote.longName ?? quote.shortName ?? ticker,
+      name: meta.longName ?? meta.shortName ?? ticker,
       ticker,
       price,
       change: Math.round(change * 100) / 100,
       changePct: Math.round(changePct * 100) / 100,
-      volume: quote.regularMarketVolume ?? 0,
-      market: quote.fullExchangeName ?? quote.exchange ?? 'N/A',
-      currency: quote.currency ?? 'USD',
+      volume: meta.regularMarketVolume ?? 0,
+      market: meta.fullExchangeName ?? meta.exchangeName ?? 'N/A',
+      currency: meta.currency ?? 'USD',
     }
 
     if (process.env.DATABASE_URL) {
