@@ -92,7 +92,7 @@ export default function Home() {
           <input
             ref={inputRef}
             className="flex-1 bg-[#2a2a3e] text-[#cdd6f4] placeholder-[#6c7086] rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-[#cba6f7] transition-all"
-            placeholder="005930 / AAPL / TSLA"
+            placeholder="삼성전자 / 005930 / AAPL"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && search()}
@@ -107,7 +107,7 @@ export default function Home() {
         </div>
 
         <p className="text-[#6c7086] text-xs text-center">
-          한국 종목: 6자리 코드 (예: 005930)&nbsp;·&nbsp;미국 종목: 티커 (예: AAPL)
+          한국: 종목명 (삼성전자) 또는 코드 (005930)&nbsp;·&nbsp;미국: 티커 (AAPL)
         </p>
 
         {error && (

@@ -5,6 +5,26 @@ function isKrCode(q: string) {
   return /^\d{6}$/.test(q)
 }
 
+function isKorean(q: string) {
+  return /[가-힣]/.test(q)
+}
+
+async function searchKoreanTicker(name: string): Promise<string | null> {
+  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(name)}&lang=ko-KR&region=KR&quotesCount=5&newsCount=0`
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'application/json',
+      Referer: 'https://finance.yahoo.com/',
+    },
+  })
+  if (!res.ok) return null
+  const data = await res.json()
+  const quotes: Array<{ symbol: string; exchange?: string }> = data?.quotes ?? []
+  const kr = quotes.find(q => q.symbol?.endsWith('.KS') || q.symbol?.endsWith('.KQ'))
+  return kr?.symbol ?? null
+}
+
 interface YahooMeta {
   longName?: string
   shortName?: string
@@ -53,7 +73,17 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim() ?? ''
   if (!q) return NextResponse.json({ error: '종목 코드를 입력하세요.' }, { status: 400 })
 
-  let ticker = isKrCode(q) ? `${q}.KS` : q.toUpperCase()
+  let ticker: string
+
+  if (isKrCode(q)) {
+    ticker = `${q}.KS`
+  } else if (isKorean(q)) {
+    const found = await searchKoreanTicker(q)
+    if (!found) return NextResponse.json({ error: `'${q}' 종목을 찾을 수 없습니다.` }, { status: 404 })
+    ticker = found
+  } else {
+    ticker = q.toUpperCase()
+  }
 
   try {
     let meta: YahooMeta
