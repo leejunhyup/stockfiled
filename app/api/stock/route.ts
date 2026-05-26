@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { neon } from '@neondatabase/serverless'
+import { findKrTicker } from '@/lib/kr-stocks'
 
 function isKrCode(q: string) {
   return /^\d{6}$/.test(q)
@@ -7,38 +8,6 @@ function isKrCode(q: string) {
 
 function isKorean(q: string) {
   return /[가-힣]/.test(q)
-}
-
-async function searchKoreanTicker(name: string): Promise<string | null> {
-  try {
-    const url = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(name)}&q_enc=UTF-8&target=stock`
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'application/json, */*',
-        Referer: 'https://finance.naver.com/',
-      },
-    })
-    if (!res.ok) return null
-
-    const data = await res.json()
-    // items: [ [kospi 항목...], [kosdaq 항목...] ]  각 항목: [종목명, 코드, 시장, ...]
-    const all: string[][] = [
-      ...(Array.isArray(data?.items?.[0]) ? data.items[0] : []),
-      ...(Array.isArray(data?.items?.[1]) ? data.items[1] : []),
-    ]
-    if (!all.length) return null
-
-    const first = all[0]
-    const code = first?.[1]
-    if (!code || !/^\d{6}$/.test(code)) return null
-
-    const market = String(first?.[2] ?? '')
-    const suffix = market.includes('코스닥') || market.toUpperCase().includes('KOSDAQ') ? '.KQ' : '.KS'
-    return `${code}${suffix}`
-  } catch {
-    return null
-  }
 }
 
 interface YahooMeta {
@@ -94,8 +63,8 @@ export async function GET(request: NextRequest) {
   if (isKrCode(q)) {
     ticker = `${q}.KS`
   } else if (isKorean(q)) {
-    const found = await searchKoreanTicker(q)
-    if (!found) return NextResponse.json({ error: `'${q}' 종목을 찾을 수 없습니다.` }, { status: 404 })
+    const found = findKrTicker(q)
+    if (!found) return NextResponse.json({ error: `'${q}' 종목을 찾을 수 없습니다. 6자리 코드로 입력해보세요.` }, { status: 404 })
     ticker = found
   } else {
     ticker = q.toUpperCase()
